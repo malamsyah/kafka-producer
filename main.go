@@ -2,22 +2,29 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"time"
+
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
 func main() {
+	http.HandleFunc("/", handler)
+	http.ListenAndServe(":9090", nil)
+}
 
-	p, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "malamsyah.id:9092"})
+func handler(w http.ResponseWriter, r *http.Request) {
+
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": "malamsyah.id:9092"})
 	if err != nil {
 		panic(err)
 	}
 
-	defer p.Close()
+	defer producer.Close()
 
-	// Delivery report handler for produced messages
 	go func() {
-		for e := range p.Events() {
+		for e := range producer.Events() {
 			switch ev := e.(type) {
 			case *kafka.Message:
 				if ev.TopicPartition.Error != nil {
@@ -29,19 +36,22 @@ func main() {
 		}
 	}()
 
-	// Produce messages to topic (asynchronously)
-	topic := "go-pay"
-	
-	for true {
-		for _, word := range []string{"Welcome", "to", "the", "Confluent", "Kafka", "Golang", "client"} {
-			p.Produce(&kafka.Message{
-				TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
-				Value:          []byte(word),
-			}, nil)
-		}
+	topics, ok := r.URL.Query()["topic"]
 
-		// Wait for message deliveries
-		p.Flush(15 * 1000)
-		time.Sleep(1 * time.Second)
+	if !ok || len(topics[0]) < 1 {
+		log.Println("Url Param 'topic' is missing")
+		return
+	}
+
+	topic := topics[0]
+
+	for i := 0; i < 20; i++ {
+		producer.Produce(&kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
+			Value:          []byte(`{"foo":"bar"}`),
+		}, nil)
+
+		producer.Flush(15 * 1000)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
